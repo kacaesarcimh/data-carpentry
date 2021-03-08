@@ -1,9 +1,11 @@
+import argparse
+
 import xarray as xr
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import cmocean
-import argparse
+import pdb
 
 
 def convert_pr_units(darray):
@@ -20,12 +22,34 @@ def convert_pr_units(darray):
     return darray
 
 
-def create_plot(clim, model, season, gridlines=False, levels=None):
+
+def apply_mask(darray, sftlf_file, realm):
+    """Mask ocean or land using a sftlf (land surface fraction) file.
+    
+    Args:
+      darray (xarray.DataArray): Data to mask
+      sftlf_file (str): Land surface fraction file
+      realm (str): Realm to mask
+    
+    """
+   
+    dset = xr.open_dataset(sftlf_file)
+    assert realm in ['land', 'ocean'], """Valid realms are 'land' or 'ocean'"""   
+    if realm == 'land':
+        masked_darray = darray.where(dset['sftlf'].data < 50)
+    else:
+        masked_darray = darray.where(dset['sftlf'].data > 50)   
+   
+    return masked_darray
+
+
+
+def create_plot(clim, model_name, season, gridlines=False, levels=None):
     """Plot the precipitation climatology.
    
     Args:
       clim (xarray.DataArray): Precipitation climatology data
-      model (str): Name of the climate model
+      model_name (str): Name of the climate model
       season (str): Season
       
     Kwargs:
@@ -49,7 +73,7 @@ def create_plot(clim, model, season, gridlines=False, levels=None):
     if gridlines:
         plt.gca().gridlines()
     
-    title = f'{model} precipitation climatology ({season})'
+    title = '%s precipitation climatology (%s)' %(model_name, season)
     plt.title(title)
 
 
@@ -61,13 +85,18 @@ def main(inargs):
     clim = dset['pr'].groupby('time.season').mean('time', keep_attrs=True)
     clim = convert_pr_units(clim)
 
+    if inargs.mask:
+        sftlf_file, realm = inargs.mask
+        clim = apply_mask(clim, sftlf_file, realm)
+
     create_plot(clim, dset.attrs['source_id'], inargs.season,
                 gridlines=inargs.gridlines, levels=inargs.cbar_levels)
     plt.savefig(inargs.output_file, dpi=200)
+    
 
 
 if __name__ == '__main__':
-    description='Plot the precipitation climatology.'
+    description='Plot the precipitation climatology for a given season.'
     parser = argparse.ArgumentParser(description=description)
    
     parser.add_argument("pr_file", type=str, help="Precipitation data file")
@@ -79,6 +108,9 @@ if __name__ == '__main__':
     parser.add_argument("--cbar_levels", type=float, nargs='*', default=None,
                         help='list of levels / tick marks to appear on the colorbar')
 
+    parser.add_argument("--mask", type=str, nargs=2, metavar=('SFTLF_FILE', 'REALM'), default=None,
+                           help="""Provide sftlf file and realm to mask ('land' or 'ocean')""")
+    
     args = parser.parse_args()
    
     main(args)
